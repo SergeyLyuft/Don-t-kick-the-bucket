@@ -1,0 +1,107 @@
+volumes:
+    DONT-KICK-THE-BUCKET:
+        external: true
+    pgadmin:
+        external: true
+services:
+    pgadmin:
+        image: dpage/pgadmin4
+        volumes:
+            - pgadmin:/var/lib/pgadmin
+        ports:
+            - 1325:80
+        environment:
+            PGADMIN_DEFAULT_EMAIL: person@gmail.com
+            PGADMIN_DEFAULT_PASSWORD: password
+    postgres:
+        build:
+            context: ./db
+            dockerfile: ./Dockerfile.dev
+        volumes:
+            - DONT-KICK-THE-BUCKET:/var/lib/postgresql/data
+        environment:
+            - POSTGRES_MULTIPLE_DATABASES=users, parks
+            - POSTGRES_PASSWORD=test-databases
+        ports:
+            - 15432:5432
+    users:
+        build:
+            context: ./users
+            dockerfile: ./Dockerfile.dev
+        ports:
+            - "8090:8000"
+        volumes:
+            - ./users:/app
+        environment:
+            DATABASE_URL: postgresql://users:password@postgres/users
+            WAIT_HOSTS: postgres:5432
+            DJWTO_SIGNING_KEY: 834e56c283be647a483a6e161be73589bf0c603be7a697ae5368c3d0a9a8259c
+            OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY}
+    parks:
+        build:
+            context: ./parks
+            dockerfile: ./Dockerfile.dev
+        ports:
+            - "8080:8000"
+        volumes:
+            - ./parks:/app
+        environment:
+            DATABASE_URL: postgresql://parks:password@postgres/parks
+            WAIT_HOSTS: postgres:5432
+            NPS_API_KEY: ${NPS_API_KEY}
+            WEATHER_API_KEY: ${WEATHER_API_KEY}
+            REACT_WEATHER_API_HOST: https://api.openweathermap.org/data/2.5/weather?q=
+            WAIT_TIMEOUT: 180
+            DJWTO_SIGNING_KEY: 834e56c283be647a483a6e161be73589bf0c603be7a697ae5368c3d0a9a8259c
+
+    parks-poller:
+        #  uncommment for production or to repopulate database
+        build:
+            context: ./parks/poll
+            dockerfile: ./Dockerfile.dev
+        volumes:
+            - ./parks/poll:/app
+            - ./parks/parks_project:/app/parks_project
+            - ./parks/parks_rest:/app/parks_rest
+        depends_on:
+            - postgres
+            - parks
+        environment:
+            DATABASE_URL: postgresql://parks:password@postgres:5432/parks
+            WAIT_HOSTS: postgres:5432,parks:8000
+            WAIT_TIMEOUT: 60
+            NPS_API_KEY: ${NPS_API_KEY}
+            WEATHER_API_KEY: ${WEATHER_API_KEY}
+    users-poller:
+        #  uncommment for production or to repopulate database
+        build:
+            context: ./users/poll
+            dockerfile: ./Dockerfile.dev
+        volumes:
+            - ./users/poll:/app
+            - ./users/users_project:/app/users_project
+            - ./users/users_rest:/app/users_rest
+        depends_on:
+            - postgres
+            - users
+        environment:
+            DATABASE_URL: postgresql://users:password@postgres:5432/users
+            WAIT_HOSTS: postgres:5432,users:8000
+            WAIT_TIMEOUT: 60
+    ghi:
+        image: node:lts-bullseye
+        command: /bin/bash run.sh
+        working_dir: /app
+        volumes:
+            - ./ghi:/app
+        ports:
+            - "3000:3000"
+        environment:
+            HOST_OS: ${OS}
+            NODE_ENV: development
+            HOST: "0.0.0.0"
+            REACT_APP_USERS: http://localhost:8090
+            REACT_APP_PARKS: http://localhost:8080
+            REACT_APP_API_HOST: http://localhost:3000
+            REACT_WEATHER_API_HOST: https://api.openweathermap.org/data/2.5/weather?q=
+            WEATHER_API_KEY: ${WEATHER_API_KEY}
